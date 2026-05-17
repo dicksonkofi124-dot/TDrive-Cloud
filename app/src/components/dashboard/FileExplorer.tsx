@@ -60,7 +60,7 @@ function useGridColumns(containerRef: React.RefObject<HTMLDivElement | null>) {
 
 export function FileExplorer({
     files, loading, error, viewMode, selectedIds, activeFolderId,
-    onFileClick, onDelete, onDownload, onPreview, onShare, onRename: _onRename, onManualUpload, onSelectionClear, onToggleSelection, onDrop, onDragStart, onDragEnd
+    onFileClick, onDelete, onDownload, onPreview, onShare, onRename, onManualUpload, onSelectionClear, onToggleSelection, onDrop, onDragStart, onDragEnd
 }: FileExplorerProps) {
     const [sortField, setSortField] = useState<SortField>('name');
     const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
