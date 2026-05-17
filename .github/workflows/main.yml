@@ -22,10 +22,17 @@ jobs:
           - platform: ubuntu-22.04
             args: ''
             
-          # macOS (Apple Silicon / ARM64)
-          # macos-latest is already ARM64 - no explicit target needed
+          # macOS (Apple Silicon / ARM64 Desktop)
           - platform: macos-latest
             args: ''
+
+          # Android Build (Runs on Linux, compiles APK)
+          - platform: ubuntu-22.04
+            args: '--target android'
+
+          # iOS Build (Runs on Mac cloud, compiles IPA)
+          - platform: macos-latest
+            args: '--target ios'
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -36,14 +43,34 @@ jobs:
         with:
           node-version: 20
 
-      - name: install Rust stable
+      - name: Setup Java (Required for Android compile)
+        if: matrix.args == '--target android'
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Android SDK (Required for Android compile)
+        if: matrix.args == '--target android'
+        uses: android-actions/setup-android@v3
+
+      - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          # Targets: Linux, Windows, and Mac ARM
-          targets: aarch64-apple-darwin, x86_64-unknown-linux-gnu, x86_64-pc-windows-msvc
+          targets: |
+            aarch64-apple-darwin
+            x86_64-unknown-linux-gnu
+            x86_64-pc-windows-msvc
+            aarch64-linux-android
+            armv7-linux-android
+            i686-linux-android
+            x86_64-linux-android
+            aarch64-apple-ios
+            x86_64-apple-ios
+            aarch64-apple-ios-sim
 
-      - name: install dependencies (ubuntu only)
-        if: matrix.platform == 'ubuntu-22.04'
+      - name: install dependencies (ubuntu Linux desktop only)
+        if: matrix.platform == 'ubuntu-22.04' && matrix.args != '--target android'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev \
@@ -64,9 +91,6 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Apple signing disabled - produces unsigned app
-          # To enable signing, add APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD, 
-          # and APPLE_SIGNING_IDENTITY secrets to your repository
         with:
           tagName: app-v__VERSION__ 
           releaseName: 'App v__VERSION__'
@@ -74,5 +98,4 @@ jobs:
           releaseDraft: true
           prerelease: false
           projectPath: ./app
-          # This pulls the 'args' from the matrix above (e.g., forcing ARM on Mac)
           args: ${{ matrix.args }}
