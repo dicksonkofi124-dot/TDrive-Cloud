@@ -14,25 +14,30 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Windows (Standard x64)
+          # Windows Desktop Build
           - platform: windows-latest
             args: ''
+            targets: 'x86_64-pc-windows-msvc'
           
-          # Linux (Ubuntu x64)
+          # Linux Desktop Build
           - platform: ubuntu-22.04
             args: ''
+            targets: 'x86_64-unknown-linux-gnu'
             
-          # macOS (Apple Silicon / ARM64 Desktop)
+          # macOS Desktop Build
           - platform: macos-latest
             args: ''
+            targets: 'aarch64-apple-darwin'
 
-          # Android Build (Runs on Linux, compiles APK)
+          # Android Mobile Build (Only requires modern 64-bit 2026 targets)
           - platform: ubuntu-22.04
             args: '--target android'
+            targets: 'aarch64-linux-android,x86_64-linux-android'
 
-          # iOS Build (Runs on Mac cloud, compiles IPA)
+          # iOS Mobile Build
           - platform: macos-latest
             args: '--target ios'
+            targets: 'aarch64-apple-ios,aarch64-apple-ios-sim'
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -41,33 +46,23 @@ jobs:
       - name: setup node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
 
-      - name: Setup Java (Required for Android compile)
+      - name: Setup Java (Android only)
         if: matrix.args == '--target android'
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
           java-version: '17'
 
-      - name: Setup Android SDK (Required for Android compile)
+      - name: Setup Android SDK (Android only)
         if: matrix.args == '--target android'
         uses: android-actions/setup-android@v3
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: |
-            aarch64-apple-darwin
-            x86_64-unknown-linux-gnu
-            x86_64-pc-windows-msvc
-            aarch64-linux-android
-            armv7-linux-android
-            i686-linux-android
-            x86_64-linux-android
-            aarch64-apple-ios
-            x86_64-apple-ios
-            aarch64-apple-ios-sim
+          targets: ${{ matrix.targets }}
 
       - name: install dependencies (ubuntu Linux desktop only)
         if: matrix.platform == 'ubuntu-22.04' && matrix.args != '--target android'
