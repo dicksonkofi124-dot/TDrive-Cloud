@@ -26,30 +26,41 @@ import { useFileUpload } from '../hooks/useFileUpload';
 import { useFileDownload } from '../hooks/useFileDownload';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 
+// ── CineHub Bridge Config ──────────────────────────────────────────────────────
+// New bridge server URL (streaming server)
+const CINEHUB_BRIDGE = 'https://cinehub-bridge.onrender.com';
+// Old bridge server URL (TDrive share format - kept for reference/backward compat)
+const OLD_BRIDGE = 'https://cinehub-bridge-server.onrender.com';
+
 export function Dashboard({ onLogout }: { onLogout: () => void }) {
     const queryClient = useQueryClient();
-
 
     const {
         store, folders, activeFolderId, setActiveFolderId, isSyncing, isConnected,
         handleLogout, handleSyncFolders, handleCreateFolder, handleFolderDelete
     } = useTelegramConnection(onLogout);
 
-
     const [previewFile, setPreviewFile] = useState<TelegramFile | null>(null);
     const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
     const [selectedIds, setSelectedIds] = useState<number[]>([]);
     const [showMoveModal, setShowMoveModal] = useState(false);
-    const [searchTerm, setSearchTerm] = useState("");
+    const [searchTerm, setSearchTerm] = useState('');
     const [searchResults, setSearchResults] = useState<TelegramFile[]>([]);
     const [isSearching, setIsSearching] = useState(false);
     const [internalDragFileId, _setInternalDragFileId] = useState<number | null>(null);
     const internalDragRef = useRef<number | null>(null);
 
+    // ── CineHub Share Modal State ──────────────────────────────────────────────
+    const [shareModalFile, setShareModalFile] = useState<TelegramFile | null>(null);
+    const [shareModalKey, setShareModalKey] = useState('');
+    const [shareModalUrl, setShareModalUrl] = useState('');
+    const [shareModalOpen, setShareModalOpen] = useState(false);
+
     const setInternalDragFileId = (id: number | null) => {
         internalDragRef.current = id;
         _setInternalDragFileId(id);
     };
+
     const [playingFile, setPlayingFile] = useState<TelegramFile | null>(null);
     const [pdfFile, setPdfFile] = useState<TelegramFile | null>(null);
     const [previewContextFiles, setPreviewContextFiles] = useState<TelegramFile[]>([]);
@@ -68,7 +79,6 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
             store.set('viewMode', viewMode).then(() => store.save());
         }
     }, [store, viewMode]);
-
 
     const { data: allFiles = [], isLoading, error } = useQuery({
         queryKey: ['files', activeFolderId],
@@ -91,16 +101,14 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
         enabled: !!store
     });
 
-
     const {
+        handleDelete,
         handleBulkDelete, handleBulkDownload,
         handleBulkMove, handleDownloadFolder, handleGlobalSearch
-
     } = useFileOperations(activeFolderId, selectedIds, setSelectedIds, displayedFiles);
 
     const { uploadQueue, setUploadQueue, handleManualUpload, cancelAll: cancelUploads, cancelItem: cancelUploadItem, retryItem: retryUploadItem, isDragging } = useFileUpload(activeFolderId, store);
     const { downloadQueue, clearFinished: clearDownloads, cancelAll: cancelDownloads, cancelItem: cancelDownloadItem, retryItem: retryDownloadItem } = useFileDownload(store);
-
 
     const handleSelectAll = useCallback(() => {
         setSelectedIds(displayedFiles.map(f => f.id));
@@ -114,10 +122,11 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
 
     const handleEscape = useCallback(() => {
         setSelectedIds([]);
-        setSearchTerm("");
+        setSearchTerm('');
         setPreviewFile(null);
         setPlayingFile(null);
         setPdfFile(null);
+        setShareModalOpen(false);
     }, []);
 
     const handleFocusSearch = useCallback(() => {
@@ -147,14 +156,13 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
         onEscape: handleEscape,
         onSearch: handleFocusSearch,
         onEnter: handleEnter,
-        enabled: !previewFile && !playingFile && !pdfFile && !showMoveModal // Disable when modals are open
+        enabled: !previewFile && !playingFile && !pdfFile && !showMoveModal && !shareModalOpen
     });
-
 
     useEffect(() => {
         setSelectedIds([]);
         setShowMoveModal(false);
-        setSearchTerm("");
+        setSearchTerm('');
         setSearchResults([]);
         setPreviewFile(null);
         setPlayingFile(null);
@@ -163,31 +171,23 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
         setPreviewContextIndex(-1);
     }, [activeFolderId]);
 
-
     useEffect(() => {
         if (searchTerm.length <= 2) {
             setSearchResults([]);
             return;
         }
-
         const timer = setTimeout(async () => {
             setIsSearching(true);
             const results = await handleGlobalSearch(searchTerm);
             setSearchResults(results);
             setIsSearching(false);
         }, 500);
-
         return () => clearTimeout(timer);
     }, [searchTerm]);
-
-
-
-
 
     const handlePreview = (file: TelegramFile, orderedFiles?: TelegramFile[]) => {
         const contextFiles = (orderedFiles || displayedFiles).filter((f) => f.type !== 'folder');
         const contextIndex = contextFiles.findIndex((f) => f.id === file.id);
-
         setPreviewContextFiles(contextFiles);
         setPreviewContextIndex(contextIndex);
 
@@ -209,177 +209,138 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
         }
     };
 
-    // ==================== SHARE & DOWNLOAD HANDLERS ====================
-
+    // ── SHARE HANDLER (CineHub Bridge) ─────────────────────────────────────────
     const handleShare = async (file: TelegramFile) => {
+        const messageId = file.message_id || file.id;
+        const folderId = activeFolderId;
+
+        // Suggest a movie key from the filename
+        const suggestedKey = file.name
+            .toLowerCase()
+            .replace(/\.(mkv|mp4|avi|mov|webm|flv|wmv)$/i, '')
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '')
+            .slice(0, 50);
+
+        setShareModalFile(file);
+        setShareModalKey(suggestedKey);
+        setShareModalUrl(`${CINEHUB_BRIDGE}/download/${suggestedKey}`);
+        setShareModalOpen(true);
+    };
+
+    const handleShareConfirm = async () => {
+        if (!shareModalFile) return;
+        const messageId = shareModalFile.message_id || shareModalFile.id;
+        const finalKey = shareModalKey.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+        const finalUrl = `${CINEHUB_BRIDGE}/download/${finalKey}`;
+
         try {
-            // Your live public Render server address
-            const renderServerUrl = "https://cinehub-bridge-server.onrender.com"; 
-            
-            // Extract the critical Telegram ID components from the file metadata
-            // Fallback to active folder if specific channel property is missing
-            const channelId = file.channel_id || activeFolderId || 'home';
-            const messageId = file.message_id || file.id;
-
-            if (!messageId) {
-                throw new Error("Missing structural file message identifier");
-            }
-
-            // Construct the permanent public link for your Cinehub website download.html file
-            const publicBridgeLink = `${renderServerUrl}/download/${channelId}/${messageId}`;
-            
-            // Copy the public direct download stream address to clipboard
-            await navigator.clipboard.writeText(publicBridgeLink);
-
-            toast.success("✅ Public Direct Link Copied", {
-                description: file.name,
+            await navigator.clipboard.writeText(finalUrl);
+            toast.success('✅ CineHub link copied!', {
+                description: `${finalKey} → ${finalUrl}`,
             });
-        } catch (error: any) {
-            console.error("Link formatting execution error:", error);
-            toast.error("Failed to generate share link", {
-                description: error?.message || "Platform security clipboard block",
-            });
+            setShareModalOpen(false);
+        } catch {
+            // Fallback
+            const ta = document.createElement('textarea');
+            ta.value = finalUrl;
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+            toast.success('CineHub link copied!');
+            setShareModalOpen(false);
         }
     };
 
+    // ── DOWNLOAD HANDLER ───────────────────────────────────────────────────────
     const handleDownload = async (file: TelegramFile) => {
         try {
             const info = await invoke<any>('cmd_get_stream_info');
-
-            if (!info || !info.base_url) {
-                throw new Error("Streaming server not ready");
-            }
-
+            if (!info || !info.base_url) throw new Error('Streaming server not ready');
             const folderParam = activeFolderId ?? 'home';
             const directLink = `${info.base_url}/download/${folderParam}/${file.id}?token=${info.token}`;
-
             const managerUrl = `https://cinehub-jet-ten.vercel.app/download.html?link=${encodeURIComponent(directLink)}`;
-            
             window.open(managerUrl, '_blank');
-
-            toast.success("Opening Download Manager", {
-                description: file.name,
-            });
+            toast.success('Opening Download Manager', { description: file.name });
         } catch (error: any) {
-            console.error(error);
-            toast.error("Failed to open download manager", {
-                description: error?.message || "Is the server running?",
-            });
+            toast.error('Failed to open download manager', { description: error?.message });
         }
     };
 
+    // ── RENAME HANDLER ─────────────────────────────────────────────────────────
     const handleRename = async (file: TelegramFile) => {
         const newName = prompt(`Rename "${file.name}" to:`, file.name);
-        if (newName && newName !== file.name) {
-            try {
-                await invoke('cmd_rename_file', {
-                    messageId: file.id,
-                    newName: newName,
-                    folderId: activeFolderId
-                });
-                // Refresh files to show updated name
-                queryClient.invalidateQueries({ queryKey: ['files', activeFolderId] });
-            } catch (error) {
-                console.error('Rename failed:', error);
-            }
+        if (!newName || newName === file.name) return;
+        try {
+            await invoke('cmd_rename_file', {
+                messageId: file.id,
+                newName: newName,
+                folderId: activeFolderId
+            });
+            queryClient.invalidateQueries({ queryKey: ['files', activeFolderId] });
+            toast.success(`Renamed to "${newName}"`);
+        } catch (error: any) {
+            toast.error(`Rename failed: ${error}`);
         }
+    };
+
+    // ── DELETE HANDLER ─────────────────────────────────────────────────────────
+    const handleDeleteFile = async (id: number) => {
+        await handleDelete(id);
     };
 
     const navigatePreview = useCallback((step: 1 | -1) => {
         if (previewContextFiles.length === 0) return;
-
         const currentFileId = previewFile?.id ?? playingFile?.id ?? pdfFile?.id;
         if (!currentFileId) return;
-
         const currentIndex = previewContextFiles.findIndex((f) => f.id === currentFileId);
         if (currentIndex === -1) return;
-
         const nextIndex = (currentIndex + step + previewContextFiles.length) % previewContextFiles.length;
         const nextFile = previewContextFiles[nextIndex];
         if (!nextFile) return;
-
         setPreviewContextIndex(nextIndex);
-
         const isMedia = isMediaFile(nextFile.name);
         const isPdf = isPdfFile(nextFile.name);
-
-        if (isMedia) {
-            setPlayingFile(nextFile);
-            setPreviewFile(null);
-            setPdfFile(null);
-        } else if (isPdf) {
-            setPdfFile(nextFile);
-            setPreviewFile(null);
-            setPlayingFile(null);
-        } else {
-            setPreviewFile(nextFile);
-            setPlayingFile(null);
-            setPdfFile(null);
-        }
+        if (isMedia) { setPlayingFile(nextFile); setPreviewFile(null); setPdfFile(null); }
+        else if (isPdf) { setPdfFile(nextFile); setPreviewFile(null); setPlayingFile(null); }
+        else { setPreviewFile(nextFile); setPlayingFile(null); setPdfFile(null); }
     }, [previewContextFiles, previewFile, playingFile, pdfFile]);
 
-    const handleNextPreview = useCallback(() => {
-        navigatePreview(1);
-    }, [navigatePreview]);
-
-    const handlePrevPreview = useCallback(() => {
-        navigatePreview(-1);
-    }, [navigatePreview]);
+    const handleNextPreview = useCallback(() => navigatePreview(1), [navigatePreview]);
+    const handlePrevPreview = useCallback(() => navigatePreview(-1), [navigatePreview]);
 
     const handleDropOnFolder = async (e: React.DragEvent, targetFolderId: number | null) => {
         e.preventDefault();
         e.stopPropagation();
-
-        const dataTransferFileId = e.dataTransfer.getData("application/x-telegram-file-id");
-
+        const dataTransferFileId = e.dataTransfer.getData('application/x-telegram-file-id');
         if (activeFolderId === targetFolderId) return;
-
         const fileId = internalDragRef.current || (dataTransferFileId ? parseInt(dataTransferFileId) : null);
-
         if (fileId) {
             try {
                 const idsToMove = selectedIds.includes(fileId) ? selectedIds : [fileId];
-
-                await invoke('cmd_move_files', {
-                    messageIds: idsToMove,
-                    sourceFolderId: activeFolderId,
-                    targetFolderId: targetFolderId
-                });
-
+                await invoke('cmd_move_files', { messageIds: idsToMove, sourceFolderId: activeFolderId, targetFolderId });
                 queryClient.invalidateQueries({ queryKey: ['files', activeFolderId] });
-
                 if (selectedIds.includes(fileId)) setSelectedIds([]);
-
                 toast.success(`Moved ${idsToMove.length} file(s).`);
-
                 setInternalDragFileId(null);
             } catch {
-                toast.error(`Failed to move file(s).`);
+                toast.error('Failed to move file(s).');
             }
         }
-    }
+    };
 
     const currentFolderName = activeFolderId === null
-        ? "Saved Messages"
-        : folders.find(f => f.id === activeFolderId)?.name || "Folder";
-
+        ? 'Saved Messages'
+        : folders.find(f => f.id === activeFolderId)?.name || 'Folder';
 
     const handleRootDragOver = (e: React.DragEvent) => {
-        if (internalDragRef.current) {
-            e.preventDefault();
-            e.stopPropagation();
-            e.dataTransfer.dropEffect = 'move';
-        }
+        if (internalDragRef.current) { e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = 'move'; }
     };
 
     const handleRootDragEnter = (e: React.DragEvent) => {
-        if (internalDragRef.current) {
-            e.preventDefault();
-            e.stopPropagation();
-            e.dataTransfer.dropEffect = 'move';
-        }
+        if (internalDragRef.current) { e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = 'move'; }
     };
-
 
     return (
         <div
@@ -388,42 +349,71 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
             onDragOver={handleRootDragOver}
             onDragEnter={handleRootDragEnter}
         >
-
             <ExternalDropBlocker onUploadClick={handleManualUpload} />
+
+            {/* ── CineHub Share Modal ──────────────────────────────────── */}
+            {shareModalOpen && shareModalFile && (
+                <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={() => setShareModalOpen(false)}>
+                    <div className="bg-telegram-surface rounded-2xl p-6 max-w-md w-full border border-telegram-border" onClick={e => e.stopPropagation()}>
+                        <h2 className="text-lg font-bold text-telegram-text mb-1">📎 Copy CineHub Link</h2>
+                        <p className="text-sm text-telegram-subtext mb-4">This link will be used in the CineHub admin panel and on your website.</p>
+
+                        <div className="p-3 bg-telegram-bg rounded-lg mb-4">
+                            <p className="font-medium text-telegram-text truncate text-sm">{shareModalFile.name}</p>
+                            <p className="text-xs text-telegram-subtext">Message ID: {shareModalFile.message_id || shareModalFile.id}</p>
+                        </div>
+
+                        <label className="text-xs text-telegram-subtext font-medium block mb-1">Movie Key (URL-friendly name)</label>
+                        <input
+                            type="text"
+                            value={shareModalKey}
+                            onChange={e => {
+                                const k = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+                                setShareModalKey(k);
+                                setShareModalUrl(`${CINEHUB_BRIDGE}/download/${k}`);
+                            }}
+                            className="w-full bg-telegram-bg border border-telegram-border rounded-lg px-3 py-2 text-sm text-telegram-text outline-none focus:border-telegram-primary mb-3"
+                            placeholder="e.g. gran-turismo-2023"
+                        />
+
+                        <label className="text-xs text-telegram-subtext font-medium block mb-1">Generated CineHub URL</label>
+                        <div className="flex items-center gap-2 p-3 bg-telegram-bg rounded-lg border border-telegram-border mb-4">
+                            <span className="flex-1 text-xs text-green-400 font-mono break-all">{shareModalUrl}</span>
+                        </div>
+
+                        <div className="p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg mb-4">
+                            <p className="text-xs text-yellow-400">
+                                ⚠️ After copying, also add this movie key to your bridge server's <code>server.js</code> MOVIES registry with the message ID shown above.
+                            </p>
+                        </div>
+
+                        <div className="flex gap-2">
+                            <button
+                                onClick={handleShareConfirm}
+                                className="flex-1 bg-telegram-primary text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-telegram-primary/90 transition-colors"
+                            >
+                                📋 Copy CineHub Link
+                            </button>
+                            <button
+                                onClick={() => setShareModalOpen(false)}
+                                className="px-4 bg-telegram-bg border border-telegram-border rounded-lg text-sm text-telegram-subtext hover:text-telegram-text transition-colors"
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             <AnimatePresence>
                 {showMoveModal && (
-                    <MoveToFolderModal
-                        folders={folders}
-                        onClose={() => setShowMoveModal(false)}
-                        onSelect={handleBulkMove}
-                        activeFolderId={activeFolderId}
-                        key="move-modal"
-                    />
+                    <MoveToFolderModal folders={folders} onClose={() => setShowMoveModal(false)} onSelect={handleBulkMove} activeFolderId={activeFolderId} key="move-modal" />
                 )}
                 {playingFile && (
-                    <MediaPlayer
-                        file={playingFile}
-                        onClose={() => setPlayingFile(null)}
-                        onNext={handleNextPreview}
-                        onPrev={handlePrevPreview}
-                        currentIndex={previewContextIndex}
-                        totalItems={previewContextFiles.length}
-                        activeFolderId={activeFolderId}
-                        key="media-player"
-                    />
+                    <MediaPlayer file={playingFile} onClose={() => setPlayingFile(null)} onNext={handleNextPreview} onPrev={handlePrevPreview} currentIndex={previewContextIndex} totalItems={previewContextFiles.length} activeFolderId={activeFolderId} key="media-player" />
                 )}
                 {pdfFile && (
-                    <PdfViewer
-                        file={pdfFile}
-                        onClose={() => setPdfFile(null)}
-                        onNext={handleNextPreview}
-                        onPrev={handlePrevPreview}
-                        currentIndex={previewContextIndex}
-                        totalItems={previewContextFiles.length}
-                        activeFolderId={activeFolderId}
-                        key="pdf-viewer"
-                    />
+                    <PdfViewer file={pdfFile} onClose={() => setPdfFile(null)} onNext={handleNextPreview} onPrev={handlePrevPreview} currentIndex={previewContextIndex} totalItems={previewContextFiles.length} activeFolderId={activeFolderId} key="pdf-viewer" />
                 )}
                 {isDragging && internalDragFileId === null && <DragDropOverlay key="drag-drop-overlay" />}
             </AnimatePresence>
@@ -454,6 +444,8 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                     setViewMode={setViewMode}
                     searchTerm={searchTerm}
                     onSearchChange={setSearchTerm}
+                    isSearching={isSearching}
+                    searchResultCount={displayedFiles.length}
                 />
                 {searchTerm.length > 2 && (
                     <div className="px-6 pt-4 pb-0">
@@ -477,9 +469,7 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                             setSelectedIds([id]);
                         }
                     }}
-                    onDelete={(_id) => {
-                        // Handle delete
-                    }}
+                    onDelete={handleDeleteFile}
                     onDownload={handleDownload}
                     onPreview={handlePreview}
                     onShare={handleShare}
@@ -489,9 +479,11 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                     onToggleSelection={(id) => {
                         setSelectedIds(ids => ids.includes(id) ? ids.filter(i => i !== id) : [...ids, id]);
                     }}
+                    onDrop={handleDropOnFolder}
+                    onDragStart={(fileId) => setInternalDragFileId(fileId)}
+                    onDragEnd={() => setInternalDragFileId(null)}
                 />
             </main>
-
 
             <UploadQueue
                 items={uploadQueue}
