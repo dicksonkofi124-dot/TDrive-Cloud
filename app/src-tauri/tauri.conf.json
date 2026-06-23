@@ -1,9 +1,9 @@
 {
-  "$schema": "https://schema.tauri.app/config/2",
+  "$schema": "https://tauri.app",
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://github.com/caamer20/Telegram-Drive/releases/latest/download/latest.json"
+        "https://github.com"
       ],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDBBRkI4QUZDNjZEMzZCRTIKUldUaWE5Tm0vSXI3Q3JrRDBtY2lZYUtGL3RTR2JuUTNYSCswVjNaVURXa1FSRWRPMzNPZk92YS8K"
     }
@@ -46,7 +46,7 @@
       "icons/icon.ico"
     ],
     "iOS": {
-      "developmentTeam": "Dickson Kofi"
+      "developmentTeam": "28H322CK64"
     }
   }
 }
