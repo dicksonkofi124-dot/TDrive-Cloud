@@ -679,21 +679,76 @@ pub async fn cmd_rename_file(
     let client = client_opt.unwrap();
     let peer = resolve_peer(&client, folder_id, &state.peer_cache).await?;
     
-    // Get the message to edit
+    // Get the message to rename
     let messages = client.get_messages_by_id(&peer, &[message_id]).await.map_err(|e| e.to_string())?;
     let msg = messages.into_iter()
         .flatten()
         .next()
         .ok_or_else(|| "Message not found".to_string())?;
     
-    // Check if message has media to rename
-    let _media = msg.media().ok_or_else(|| "No media in message".to_string())?;
+    // Check if message has media
+    let media = msg.media().ok_or_else(|| "No media in message".to_string())?;
     
-    // Create new message with updated caption (using file name as caption)
-    let new_message = InputMessage::new().text(&new_name);
+    // Extract file extension from original name for temp file
+    let original_name = match &media {
+        Media::Document(d) => d.name().to_string(),
+        Media::Photo(_) => "photo.jpg".to_string(),
+        _ => "file".to_string(),
+    };
+    let extension = std::path::Path::new(&original_name)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("");
     
-    // Edit the message
-    client.edit_message(&peer, msg.id(), new_message).await.map_err(|e| e.to_string())?;
+    // Download the file to a temporary location with proper extension
+    let temp_dir = std::env::temp_dir();
+    let temp_filename = if extension.is_empty() {
+        format!("tdrive_rename_{}", message_id)
+    } else {
+        format!("tdrive_rename_{}.{}", message_id, extension)
+    };
+    let temp_path = temp_dir.join(&temp_filename);
+    let temp_path_str = temp_path.to_str().ok_or("Invalid temp path")?;
+    
+    // Download the file with cleanup on error
+    let download_result = async {
+        let mut download_iter = client.iter_download(&media);
+        let mut file = std::fs::File::create(&temp_path_str).map_err(|e| e.to_string())?;
+        
+        while let Some(chunk) = download_iter.next().await.transpose() {
+            let bytes = chunk.map_err(|e| format!("Download chunk error: {}", e))?;
+            std::io::Write::write_all(&mut file, &bytes).map_err(|e| e.to_string())?;
+        }
+        Ok::<(), String>(())
+    }.await;
+    
+    if let Err(e) = download_result {
+        let _ = std::fs::remove_file(&temp_path_str);
+        return Err(format!("Download failed: {}", e));
+    }
+    
+    // Re-upload with the new name first (safer: don't delete until upload succeeds)
+    let file_size = std::fs::metadata(&temp_path_str).map_err(|e| e.to_string())?.len();
+    let upload_result = async {
+        let mut reader = tokio::io::BufReader::new(tokio::fs::File::open(&temp_path_str).await.map_err(|e| e.to_string())?);
+        let uploaded_file = client.upload_stream(&mut reader, file_size as usize, &new_name).await.map_err(map_error)?;
+        
+        // Send the new message
+        let new_message = InputMessage::new().text("").file(uploaded_file);
+        client.send_message(&peer, new_message).await.map_err(map_error)?;
+        
+        Ok::<(), String>(())
+    }.await;
+    
+    // Clean up temp file regardless of upload result
+    let _ = std::fs::remove_file(&temp_path_str);
+    
+    if let Err(e) = upload_result {
+        return Err(format!("Re-upload failed (original message preserved): {}", e));
+    }
+    
+    // Only delete original message after successful upload
+    client.delete_messages(&peer, &[message_id]).await.map_err(|e| e.to_string())?;
     
     log::info!("Renamed message {} to {}", message_id, new_name);
     Ok("File renamed successfully".to_string())

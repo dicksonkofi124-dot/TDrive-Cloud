@@ -22,7 +22,8 @@ export function ShareModal({ file, isOpen, onClose, activeFolderId }: ShareModal
         try {
             // Generate a Telegram shareable link
             // Format: https://t.me/c/channel_id/message_id
-            const link = `https://t.me/c/${Math.abs(activeFolderId || 0)}/${file.id}`;
+            const messageId = file.message_id || file.id;
+            const link = `https://t.me/c/${Math.abs(activeFolderId || 0)}/${messageId}`;
             setShareLink(link);
         } catch (error) {
             console.error('Failed to generate share link:', error);
@@ -110,15 +111,15 @@ export function ShareModal({ file, isOpen, onClose, activeFolderId }: ShareModal
                                 </div>
                             ) : shareLink ? (
                                 <>
-                                    <div className="flex items-center gap-2 p-3 bg-telegram-bg rounded-lg border border-telegram-border">
+                                    <div className="flex items-center gap-2 p-3 bg-telegram-bg rounded-lg border border-telegram-border cursor-pointer" onClick={copyToClipboard}>
                                         <input
                                             type="text"
                                             value={shareLink}
                                             readOnly
-                                            className="flex-1 bg-transparent text-sm text-telegram-text outline-none"
+                                            className="flex-1 bg-transparent text-sm text-telegram-text outline-none cursor-pointer"
                                         />
                                         <button
-                                            onClick={copyToClipboard}
+                                            onClick={(e) => { e.stopPropagation(); copyToClipboard(); }}
                                             className="p-2 hover:bg-telegram-surface rounded-lg transition-colors"
                                             title={copied ? "Copied!" : "Copy link"}
                                         >

@@ -235,20 +235,45 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
         const finalUrl = `${CINEHUB_BRIDGE}/download/${finalKey}`;
 
         try {
+            // Register movie key with bridge server
+            const registerResponse = await fetch(`${CINEHUB_BRIDGE}/register-movie`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    key: finalKey,
+                    messageId: messageId,
+                    folderId: activeFolderId
+                })
+            });
+
+            if (!registerResponse.ok) {
+                console.warn('Failed to register movie with bridge server, but link was copied');
+            }
+
             await navigator.clipboard.writeText(finalUrl);
-            toast.success('✅ CineHub link copied!', {
+            toast.success('✅ CineHub link copied & registered!', {
                 description: `${finalKey} → ${finalUrl}`,
             });
             setShareModalOpen(false);
-        } catch {
-            // Fallback
-            const ta = document.createElement('textarea');
-            ta.value = finalUrl;
-            document.body.appendChild(ta);
-            ta.select();
-            document.execCommand('copy');
-            document.body.removeChild(ta);
-            toast.success('CineHub link copied!');
+        } catch (error) {
+            // Fallback for clipboard copy even if registration fails
+            try {
+                await navigator.clipboard.writeText(finalUrl);
+                toast.success('✅ CineHub link copied!', {
+                    description: `${finalKey} → ${finalUrl}`,
+                });
+            } catch {
+                // Fallback
+                const ta = document.createElement('textarea');
+                ta.value = finalUrl;
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand('copy');
+                document.body.removeChild(ta);
+                toast.success('CineHub link copied!');
+            }
             setShareModalOpen(false);
         }
     };
@@ -274,7 +299,7 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
         if (!newName || newName === file.name) return;
         try {
             await invoke('cmd_rename_file', {
-                messageId: file.id,
+                messageId: file.message_id || file.id,
                 newName: newName,
                 folderId: activeFolderId
             });
@@ -377,14 +402,8 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                         />
 
                         <label className="text-xs text-telegram-subtext font-medium block mb-1">Generated CineHub URL</label>
-                        <div className="flex items-center gap-2 p-3 bg-telegram-bg rounded-lg border border-telegram-border mb-4">
+                        <div className="flex items-center gap-2 p-3 bg-telegram-bg rounded-lg border border-telegram-border mb-4 cursor-pointer hover:bg-telegram-surface transition-colors" onClick={handleShareConfirm}>
                             <span className="flex-1 text-xs text-green-400 font-mono break-all">{shareModalUrl}</span>
-                        </div>
-
-                        <div className="p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg mb-4">
-                            <p className="text-xs text-yellow-400">
-                                ⚠️ After copying, also add this movie key to your bridge server's <code>server.js</code> MOVIES registry with the message ID shown above.
-                            </p>
                         </div>
 
                         <div className="flex gap-2">
