@@ -388,7 +388,7 @@ pub async fn cmd_auth_qr_poll(
     };
 
     // Helper function to check if error indicates password/2FA is required
-    fn is_password_required_error(err: &grammers_client::ClientError) -> bool {
+    fn is_password_required_error(err: &grammers_client::InvocationError) -> bool {
         let err_msg = err.to_string().to_lowercase();
         err_msg.contains("password") || err_msg.contains("2fa")
     }
