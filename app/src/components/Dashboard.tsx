@@ -26,13 +26,30 @@ import { useFileUpload } from '../hooks/useFileUpload';
 import { useFileDownload } from '../hooks/useFileDownload';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 
-// ── CineHub Bridge Config ──────────────────────────────────────────────────────
+// ── Share Bridge Config ──────────────────────────────────────────────────────
 // Default bridge server URL (streaming server)
-const CINEHUB_BRIDGE = 'https://cinehub-bridge.onrender.com';
-// Old bridge server URL (TDrive share format - kept for reference/backward compat)
-const OLD_BRIDGE = 'https://cinehub-bridge-server.onrender.com';
+const BRIDGE_API = 'https://cinehub-bridge.onrender.com';
 // Default website domain for config.js fetching
 const DEFAULT_DOMAIN = 'https://cinehub-jet-ten.vercel.app';
+
+// Centralized config fetch to avoid duplicate network requests
+async function fetchConfig() {
+    try {
+        const configResponse = await fetch(`${DEFAULT_DOMAIN}/config.js`);
+        if (configResponse.ok) {
+            const configText = await configResponse.text();
+            const domainMatch = configText.match(/domain:\s*['"]([^'"]+)['"]/);
+            const bridgeMatch = configText.match(/bridgeApi:\s*['"]([^'"]+)['"]/);
+            return {
+                domain: domainMatch ? domainMatch[1] : DEFAULT_DOMAIN,
+                bridgeApi: bridgeMatch ? bridgeMatch[1] : BRIDGE_API
+            };
+        }
+    } catch (error) {
+        console.warn('Failed to fetch config.js, using defaults');
+    }
+    return { domain: DEFAULT_DOMAIN, bridgeApi: BRIDGE_API };
+}
 
 export function Dashboard({ onLogout }: { onLogout: () => void }) {
     const queryClient = useQueryClient();
@@ -52,7 +69,7 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
     const [internalDragFileId, _setInternalDragFileId] = useState<number | null>(null);
     const internalDragRef = useRef<number | null>(null);
 
-    // ── CineHub Share Modal State ──────────────────────────────────────────────
+    // ── Share Modal State ──────────────────────────────────────────────────────
     const [shareModalFile, setShareModalFile] = useState<TelegramFile | null>(null);
     const [shareModalKey, setShareModalKey] = useState('');
     const [shareModalUrl, setShareModalUrl] = useState('');
@@ -211,28 +228,16 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
         }
     };
 
-    // ── SHARE HANDLER (CineHub Bridge) ─────────────────────────────────────────
+    // ── SHARE HANDLER (Share Bridge) ─────────────────────────────────────────
     const handleShare = async (file: TelegramFile) => {
         const messageId = file.id;
         const folderId = activeFolderId;
 
-        // Read domain from config.js if available, otherwise use default
-        let domain = 'https://cinehub-jet-ten.vercel.app';
-        try {
-            const configResponse = await fetch('https://cinehub-jet-ten.vercel.app/config.js');
-            if (configResponse.ok) {
-                const configText = await configResponse.text();
-                const domainMatch = configText.match(/domain:\s*['"]([^'"]+)['"]/);
-                if (domainMatch) {
-                    domain = domainMatch[1];
-                }
-            }
-        } catch (error) {
-            console.warn('Failed to fetch config.js, using default domain');
-        }
+        // Fetch config (domain and bridge API) in a single call
+        const config = await fetchConfig();
 
         // Use message ID format like the example: https://cinehub-jet-ten.vercel.app/download.html?id=1122573
-        const shareUrl = `${domain}/download.html?id=${messageId}`;
+        const shareUrl = `${config.domain}/download.html?id=${messageId}`;
 
         setShareModalFile(file);
         setShareModalKey(messageId.toString());
@@ -245,31 +250,19 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
         const messageId = shareModalFile.id;
         const finalUrl = shareModalUrl;
 
-        // Read bridge API from config.js if available, otherwise use default
-        let bridgeApi = CINEHUB_BRIDGE;
-        try {
-            const configResponse = await fetch('https://cinehub-jet-ten.vercel.app/config.js');
-            if (configResponse.ok) {
-                const configText = await configResponse.text();
-                const bridgeMatch = configText.match(/bridgeApi:\s*['"]([^'"]+)['"]/);
-                if (bridgeMatch) {
-                    bridgeApi = bridgeMatch[1];
-                }
-            }
-        } catch (error) {
-            console.warn('Failed to fetch config.js, using default bridge API');
-        }
+        // Fetch config (domain and bridge API) in a single call
+        const config = await fetchConfig();
 
         try {
-            // Register movie with bridge server including channel_id for TD channel detection
-            const registerResponse = await fetch(`${bridgeApi}/register-movie`, {
+            // Register movie with bridge server including folderId for TD channel detection
+            const registerResponse = await fetch(`${config.bridgeApi}/register-movie`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
                     messageId: messageId,
-                    channelId: activeFolderId,
+                    folderId: activeFolderId,
                     fileName: shareModalFile.name
                 })
             });

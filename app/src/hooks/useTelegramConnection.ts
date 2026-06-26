@@ -138,12 +138,15 @@ export function useTelegramConnection(onLogoutParent: () => void) {
         if (!store) return;
         setIsSyncing(true);
         try {
+            // Scan Telegram for all folders/channels
             const foundFolders = await invoke<TelegramFolder[]>('cmd_scan_folders');
+            
+            // Start with current folders from state
             const merged = [...folders];
             let added = 0;
             let removed = 0;
             
-            // Add new folders
+            // Add any new folders that exist on Telegram but not in our state
             for (const f of foundFolders) {
                 if (!merged.find(existing => existing.id === f.id)) {
                     merged.push(f);
@@ -151,17 +154,22 @@ export function useTelegramConnection(onLogoutParent: () => void) {
                 }
             }
             
-            // Remove folders that no longer exist on Telegram
+            // Remove folders that no longer exist on Telegram (deleted externally)
+            // Create a Set of IDs from found folders for efficient lookup
             const foundIds = new Set(foundFolders.map(f => f.id));
             const filtered = merged.filter(f => foundIds.has(f.id));
+            // Calculate how many were removed (original length - filtered length)
             removed = merged.length - filtered.length;
             
+            // Only update state if there were changes
             if (added > 0 || removed > 0) {
                 setFolders(filtered);
                 await store.set('folders', filtered);
                 await store.save();
+                // Invalidate files query to refresh file list after folder changes
                 queryClient.invalidateQueries({ queryKey: ['files'] });
                 
+                // Show appropriate toast message based on what changed
                 if (added > 0 && removed > 0) {
                     toast.success(`Scan complete. Found ${added} new folders, removed ${removed} deleted folders.`);
                 } else if (added > 0) {

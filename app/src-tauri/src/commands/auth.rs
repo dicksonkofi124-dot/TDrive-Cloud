@@ -373,6 +373,11 @@ pub async fn cmd_auth_qr_login(
 /// previous one, causing the scanned QR code to fail with "Invalid code".
 /// Instead, we check is_authorized() which succeeds once the phone app
 /// accepts the token via auth.acceptLoginToken.
+///
+/// NOTE: Error detection for 2FA/password requirement uses string matching
+/// as a fallback since grammers-client doesn't expose a specific error type
+/// for this case. The keywords (PASSWORD, 2FA, password) are checked in
+/// lowercase to be case-insensitive.
 #[tauri::command]
 pub async fn cmd_auth_qr_poll(
     state: State<'_, TelegramState>,
@@ -381,6 +386,12 @@ pub async fn cmd_auth_qr_poll(
         let guard = state.client.lock().await;
         guard.as_ref().ok_or("Client not initialized")?.clone()
     };
+
+    // Helper function to check if error indicates password/2FA is required
+    fn is_password_required_error(err: &grammers_client::ClientError) -> bool {
+        let err_msg = err.to_string().to_lowercase();
+        err_msg.contains("password") || err_msg.contains("2fa")
+    }
 
     // Check if the session is now authorized (user scanned QR on phone)
     match client.is_authorized().await {
@@ -407,9 +418,7 @@ pub async fn cmd_auth_qr_poll(
                     })
                 }
                 Err(e) => {
-                    let err_msg = e.to_string();
-                    // Check if this is a password-required error
-                    if err_msg.contains("PASSWORD") || err_msg.contains("2FA") || err_msg.contains("password") {
+                    if is_password_required_error(&e) {
                         log::info!("QR login: password required");
                         Ok(AuthResult {
                             success: false,
@@ -428,9 +437,7 @@ pub async fn cmd_auth_qr_poll(
             }
         }
         Err(e) => {
-            let err_msg = e.to_string();
-            // Check if this is a password-required error
-            if err_msg.contains("PASSWORD") || err_msg.contains("2FA") || err_msg.contains("password") {
+            if is_password_required_error(&e) {
                 log::info!("QR login: password required (from error)");
                 Ok(AuthResult {
                     success: false,
