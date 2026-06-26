@@ -6,8 +6,6 @@ export interface TelegramFile {
     created_at?: string;
     type?: 'folder' | 'file'; // implied icon_type
     channel_id?: number;
-    message_id?: number;
-    // Add other fields if backend sends them
 }
 
 export interface TelegramFolder {

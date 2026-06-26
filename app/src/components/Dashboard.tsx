@@ -27,10 +27,12 @@ import { useFileDownload } from '../hooks/useFileDownload';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 
 // ── CineHub Bridge Config ──────────────────────────────────────────────────────
-// New bridge server URL (streaming server)
+// Default bridge server URL (streaming server)
 const CINEHUB_BRIDGE = 'https://cinehub-bridge.onrender.com';
 // Old bridge server URL (TDrive share format - kept for reference/backward compat)
 const OLD_BRIDGE = 'https://cinehub-bridge-server.onrender.com';
+// Default website domain for config.js fetching
+const DEFAULT_DOMAIN = 'https://cinehub-jet-ten.vercel.app';
 
 export function Dashboard({ onLogout }: { onLogout: () => void }) {
     const queryClient = useQueryClient();
@@ -211,40 +213,64 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
 
     // ── SHARE HANDLER (CineHub Bridge) ─────────────────────────────────────────
     const handleShare = async (file: TelegramFile) => {
-        const messageId = file.message_id || file.id;
+        const messageId = file.id;
         const folderId = activeFolderId;
 
-        // Suggest a movie key from the filename
-        const suggestedKey = file.name
-            .toLowerCase()
-            .replace(/\.(mkv|mp4|avi|mov|webm|flv|wmv)$/i, '')
-            .replace(/[^a-z0-9]+/g, '-')
-            .replace(/^-+|-+$/g, '')
-            .slice(0, 50);
+        // Read domain from config.js if available, otherwise use default
+        let domain = 'https://cinehub-jet-ten.vercel.app';
+        try {
+            const configResponse = await fetch('https://cinehub-jet-ten.vercel.app/config.js');
+            if (configResponse.ok) {
+                const configText = await configResponse.text();
+                const domainMatch = configText.match(/domain:\s*['"]([^'"]+)['"]/);
+                if (domainMatch) {
+                    domain = domainMatch[1];
+                }
+            }
+        } catch (error) {
+            console.warn('Failed to fetch config.js, using default domain');
+        }
+
+        // Use message ID format like the example: https://cinehub-jet-ten.vercel.app/download.html?id=1122573
+        const shareUrl = `${domain}/download.html?id=${messageId}`;
 
         setShareModalFile(file);
-        setShareModalKey(suggestedKey);
-        setShareModalUrl(`${CINEHUB_BRIDGE}/download/${suggestedKey}`);
+        setShareModalKey(messageId.toString());
+        setShareModalUrl(shareUrl);
         setShareModalOpen(true);
     };
 
     const handleShareConfirm = async () => {
         if (!shareModalFile) return;
-        const messageId = shareModalFile.message_id || shareModalFile.id;
-        const finalKey = shareModalKey.toLowerCase().replace(/[^a-z0-9-]/g, '-');
-        const finalUrl = `${CINEHUB_BRIDGE}/download/${finalKey}`;
+        const messageId = shareModalFile.id;
+        const finalUrl = shareModalUrl;
+
+        // Read bridge API from config.js if available, otherwise use default
+        let bridgeApi = CINEHUB_BRIDGE;
+        try {
+            const configResponse = await fetch('https://cinehub-jet-ten.vercel.app/config.js');
+            if (configResponse.ok) {
+                const configText = await configResponse.text();
+                const bridgeMatch = configText.match(/bridgeApi:\s*['"]([^'"]+)['"]/);
+                if (bridgeMatch) {
+                    bridgeApi = bridgeMatch[1];
+                }
+            }
+        } catch (error) {
+            console.warn('Failed to fetch config.js, using default bridge API');
+        }
 
         try {
-            // Register movie key with bridge server
-            const registerResponse = await fetch(`${CINEHUB_BRIDGE}/register-movie`, {
+            // Register movie with bridge server including channel_id for TD channel detection
+            const registerResponse = await fetch(`${bridgeApi}/register-movie`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                    key: finalKey,
                     messageId: messageId,
-                    folderId: activeFolderId
+                    channelId: activeFolderId,
+                    fileName: shareModalFile.name
                 })
             });
 
@@ -253,16 +279,16 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
             }
 
             await navigator.clipboard.writeText(finalUrl);
-            toast.success('✅ CineHub link copied & registered!', {
-                description: `${finalKey} → ${finalUrl}`,
+            toast.success('✅ Share link copied & registered!', {
+                description: finalUrl,
             });
             setShareModalOpen(false);
         } catch (error) {
             // Fallback for clipboard copy even if registration fails
             try {
                 await navigator.clipboard.writeText(finalUrl);
-                toast.success('✅ CineHub link copied!', {
-                    description: `${finalKey} → ${finalUrl}`,
+                toast.success('✅ Share link copied!', {
+                    description: finalUrl,
                 });
             } catch {
                 // Fallback
@@ -272,7 +298,7 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                 ta.select();
                 document.execCommand('copy');
                 document.body.removeChild(ta);
-                toast.success('CineHub link copied!');
+                toast.success('Share link copied!');
             }
             setShareModalOpen(false);
         }
@@ -299,7 +325,7 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
         if (!newName || newName === file.name) return;
         try {
             await invoke('cmd_rename_file', {
-                messageId: file.message_id || file.id,
+                messageId: file.id,
                 newName: newName,
                 folderId: activeFolderId
             });
@@ -376,32 +402,20 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
         >
             <ExternalDropBlocker onUploadClick={handleManualUpload} />
 
-            {/* ── CineHub Share Modal ──────────────────────────────────── */}
+            {/* ── Share Modal ──────────────────────────────────── */}
             {shareModalOpen && shareModalFile && (
                 <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={() => setShareModalOpen(false)}>
                     <div className="bg-telegram-surface rounded-2xl p-6 max-w-md w-full border border-telegram-border" onClick={e => e.stopPropagation()}>
-                        <h2 className="text-lg font-bold text-telegram-text mb-1">📎 Copy CineHub Link</h2>
-                        <p className="text-sm text-telegram-subtext mb-4">This link will be used in the CineHub admin panel and on your website.</p>
+                        <h2 className="text-lg font-bold text-telegram-text mb-1">📎 Copy Share Link</h2>
+                        <p className="text-sm text-telegram-subtext mb-4">Share this file with a direct link.</p>
 
                         <div className="p-3 bg-telegram-bg rounded-lg mb-4">
                             <p className="font-medium text-telegram-text truncate text-sm">{shareModalFile.name}</p>
-                            <p className="text-xs text-telegram-subtext">Message ID: {shareModalFile.message_id || shareModalFile.id}</p>
+                            <p className="text-xs text-telegram-subtext">Message ID: {shareModalFile.id}</p>
+                            <p className="text-xs text-telegram-subtext">Channel ID: {activeFolderId || 'Saved Messages'}</p>
                         </div>
 
-                        <label className="text-xs text-telegram-subtext font-medium block mb-1">Movie Key (URL-friendly name)</label>
-                        <input
-                            type="text"
-                            value={shareModalKey}
-                            onChange={e => {
-                                const k = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-');
-                                setShareModalKey(k);
-                                setShareModalUrl(`${CINEHUB_BRIDGE}/download/${k}`);
-                            }}
-                            className="w-full bg-telegram-bg border border-telegram-border rounded-lg px-3 py-2 text-sm text-telegram-text outline-none focus:border-telegram-primary mb-3"
-                            placeholder="e.g. gran-turismo-2023"
-                        />
-
-                        <label className="text-xs text-telegram-subtext font-medium block mb-1">Generated CineHub URL</label>
+                        <label className="text-xs text-telegram-subtext font-medium block mb-1">Share Link</label>
                         <div className="flex items-center gap-2 p-3 bg-telegram-bg rounded-lg border border-telegram-border mb-4 cursor-pointer hover:bg-telegram-surface transition-colors" onClick={handleShareConfirm}>
                             <span className="flex-1 text-xs text-green-400 font-mono break-all">{shareModalUrl}</span>
                         </div>
@@ -411,7 +425,7 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                                 onClick={handleShareConfirm}
                                 className="flex-1 bg-telegram-primary text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-telegram-primary/90 transition-colors"
                             >
-                                📋 Copy CineHub Link
+                                📋 Copy Link
                             </button>
                             <button
                                 onClick={() => setShareModalOpen(false)}

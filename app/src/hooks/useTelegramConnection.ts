@@ -141,19 +141,36 @@ export function useTelegramConnection(onLogoutParent: () => void) {
             const foundFolders = await invoke<TelegramFolder[]>('cmd_scan_folders');
             const merged = [...folders];
             let added = 0;
+            let removed = 0;
+            
+            // Add new folders
             for (const f of foundFolders) {
                 if (!merged.find(existing => existing.id === f.id)) {
                     merged.push(f);
                     added++;
                 }
             }
-            if (added > 0) {
-                setFolders(merged);
-                await store.set('folders', merged);
+            
+            // Remove folders that no longer exist on Telegram
+            const foundIds = new Set(foundFolders.map(f => f.id));
+            const filtered = merged.filter(f => foundIds.has(f.id));
+            removed = merged.length - filtered.length;
+            
+            if (added > 0 || removed > 0) {
+                setFolders(filtered);
+                await store.set('folders', filtered);
                 await store.save();
-                toast.success(`Scan complete. Found ${added} new folders.`);
+                queryClient.invalidateQueries({ queryKey: ['files'] });
+                
+                if (added > 0 && removed > 0) {
+                    toast.success(`Scan complete. Found ${added} new folders, removed ${removed} deleted folders.`);
+                } else if (added > 0) {
+                    toast.success(`Scan complete. Found ${added} new folders.`);
+                } else if (removed > 0) {
+                    toast.success(`Scan complete. Removed ${removed} deleted folders.`);
+                }
             } else {
-                toast.info("Scan complete. No new folders found.");
+                toast.info("Scan complete. No changes found.");
             }
         } catch {
             toast.error("Sync failed");
@@ -170,6 +187,7 @@ export function useTelegramConnection(onLogoutParent: () => void) {
             setFolders(updated);
             await store.set('folders', updated);
             await store.save();
+            queryClient.invalidateQueries({ queryKey: ['files'] });
             toast.success(`Folder "${name}" created.`);
         } catch (e) {
             toast.error("Failed to create folder: " + e);
@@ -194,6 +212,7 @@ export function useTelegramConnection(onLogoutParent: () => void) {
                 await store.save();
             }
             if (activeFolderId === folderId) setActiveFolderId(null);
+            queryClient.invalidateQueries({ queryKey: ['files'] });
             toast.success(`Folder "${folderName}" deleted.`);
         } catch (e: unknown) {
             const errStr = String(e);
@@ -211,6 +230,7 @@ export function useTelegramConnection(onLogoutParent: () => void) {
                         await store.save();
                     }
                     if (activeFolderId === folderId) setActiveFolderId(null);
+                    queryClient.invalidateQueries({ queryKey: ['files'] });
                 }
             } else {
                 toast.error(`Failed to delete folder: ${e}`);

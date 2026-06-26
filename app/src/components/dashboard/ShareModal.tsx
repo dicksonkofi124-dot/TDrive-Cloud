@@ -22,7 +22,7 @@ export function ShareModal({ file, isOpen, onClose, activeFolderId }: ShareModal
         try {
             // Generate a Telegram shareable link
             // Format: https://t.me/c/channel_id/message_id
-            const messageId = file.message_id || file.id;
+            const messageId = file.id;
             const link = `https://t.me/c/${Math.abs(activeFolderId || 0)}/${messageId}`;
             setShareLink(link);
         } catch (error) {

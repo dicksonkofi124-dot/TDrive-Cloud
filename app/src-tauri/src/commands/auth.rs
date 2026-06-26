@@ -393,20 +393,58 @@ pub async fn cmd_auth_qr_poll(
             })
         }
         Ok(false) => {
-            // Not yet scanned or accepted
-            Ok(AuthResult {
-                success: false,
-                next_step: Some("waiting".to_string()),
-                error: None,
-            })
+            // Not yet scanned or accepted - check if we need to complete the login
+            // Try to get the current user to see if we're in a password-required state
+            match client.get_me().await {
+                Ok(_) => {
+                    // If get_me succeeds but is_authorized returned false, this is unusual
+                    // Treat as waiting
+                    log::info!("QR login: get_me succeeded but not fully authorized, waiting...");
+                    Ok(AuthResult {
+                        success: false,
+                        next_step: Some("waiting".to_string()),
+                        error: None,
+                    })
+                }
+                Err(e) => {
+                    let err_msg = e.to_string();
+                    // Check if this is a password-required error
+                    if err_msg.contains("PASSWORD") || err_msg.contains("2FA") || err_msg.contains("password") {
+                        log::info!("QR login: password required");
+                        Ok(AuthResult {
+                            success: false,
+                            next_step: Some("password".to_string()),
+                            error: None,
+                        })
+                    } else {
+                        // Still waiting for scan
+                        Ok(AuthResult {
+                            success: false,
+                            next_step: Some("waiting".to_string()),
+                            error: None,
+                        })
+                    }
+                }
+            }
         }
         Err(e) => {
-            log::warn!("QR poll auth check failed: {}", e);
-            Ok(AuthResult {
-                success: false,
-                next_step: Some("waiting".to_string()),
-                error: None,
-            })
+            let err_msg = e.to_string();
+            // Check if this is a password-required error
+            if err_msg.contains("PASSWORD") || err_msg.contains("2FA") || err_msg.contains("password") {
+                log::info!("QR login: password required (from error)");
+                Ok(AuthResult {
+                    success: false,
+                    next_step: Some("password".to_string()),
+                    error: None,
+                })
+            } else {
+                log::warn!("QR poll auth check failed: {}", e);
+                Ok(AuthResult {
+                    success: false,
+                    next_step: Some("waiting".to_string()),
+                    error: None,
+                })
+            }
         }
     }
 }
