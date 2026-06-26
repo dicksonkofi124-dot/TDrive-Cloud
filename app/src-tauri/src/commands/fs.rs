@@ -731,7 +731,7 @@ pub async fn cmd_rename_file(
     let file_size = std::fs::metadata(&temp_path_str).map_err(|e| e.to_string())?.len();
     let upload_result = async {
         let mut reader = tokio::io::BufReader::new(tokio::fs::File::open(&temp_path_str).await.map_err(|e| e.to_string())?);
-        let uploaded_file = client.upload_stream(&mut reader, file_size as usize, &new_name).await.map_err(map_error)?;
+        let uploaded_file = client.upload_stream(&mut reader, file_size as usize, new_name.clone()).await.map_err(map_error)?;
         
         // Send the new message
         let new_message = InputMessage::new().text("").file(uploaded_file);
