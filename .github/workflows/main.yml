@@ -85,29 +85,3 @@ jobs:
         run: npx tauri android build
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  publish-ios:
-    runs-on: macos-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-      - name: setup node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - name: Install Rust iOS Targets
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-apple-ios,aarch64-apple-ios-sim
-      - name: install frontend dependencies
-        working-directory: app
-        run: npm install
-      - name: init ios project
-        working-directory: app
-        run: npx tauri ios init
-      - name: build ios app
-        working-directory: app
-        run: npx tauri ios build -- --no-bundle CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
