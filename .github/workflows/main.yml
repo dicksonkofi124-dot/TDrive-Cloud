@@ -21,7 +21,7 @@ jobs:
           - platform: macos-latest
             args: ''
             arch: arm64
-          - platform: macos-11
+          - platform: macos-latest
             args: ''
             arch: x86_64
     runs-on: ${{ matrix.platform }}
