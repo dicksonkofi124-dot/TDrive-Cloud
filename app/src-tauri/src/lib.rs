@@ -29,6 +29,21 @@ fn generate_stream_token() -> String {
 /// from the RunEvent::Exit handler for graceful Ctrl+C termination.
 pub struct ActixServerHandle(pub Arc<std::sync::Mutex<Option<actix_web::dev::ServerHandle>>>);
 
+/// `tauri-plugin-window-state` only persists window position/size, which is a
+/// desktop-only concept — it doesn't build at all on Android/iOS. On mobile we
+/// swap in a harmless no-op plugin instead, so the same builder chain compiles
+/// on every platform without scattering #[cfg] blocks through `run()`.
+fn window_state_plugin<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
+    #[cfg(desktop)]
+    {
+        tauri_plugin_window_state::Builder::default().build()
+    }
+    #[cfg(not(desktop))]
+    {
+        tauri::plugin::Builder::new("window-state-noop").build()
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     env_logger::init();
@@ -48,7 +63,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(window_state_plugin())
         .setup(move |app| {
             app.manage(TelegramState {
                 client: Arc::new(Mutex::new(None)),
