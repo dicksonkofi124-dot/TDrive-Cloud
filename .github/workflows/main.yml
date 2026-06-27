@@ -14,10 +14,16 @@ jobs:
         include:
           - platform: windows-latest
             args: ''
+            arch: x86_64
           - platform: ubuntu-22.04
             args: ''
+            arch: x86_64
           - platform: macos-latest
             args: ''
+            arch: arm64
+          - platform: macos-11
+            args: ''
+            arch: x86_64
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
@@ -39,6 +45,7 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BUILD_ARCH: ${{ matrix.arch }}
         with:
           tagName: app-v__VERSION__ 
           releaseName: 'App v__VERSION__'
