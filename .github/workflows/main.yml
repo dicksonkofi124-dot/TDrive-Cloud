@@ -69,6 +69,9 @@ jobs:
       - name: install frontend dependencies
         working-directory: app
         run: npm install
+      - name: init android project
+        working-directory: app
+        run: npx tauri android init
       - name: build android app
         working-directory: app
         run: npx tauri android build
@@ -92,6 +95,9 @@ jobs:
       - name: install frontend dependencies
         working-directory: app
         run: npm install
+      - name: init ios project
+        working-directory: app
+        run: npx tauri ios init
       - name: build ios app
         working-directory: app
         run: npx tauri ios build -- --no-bundle
