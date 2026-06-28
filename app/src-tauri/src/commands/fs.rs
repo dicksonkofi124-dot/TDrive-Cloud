@@ -690,26 +690,20 @@ pub async fn cmd_rename_file(
     let media = msg.media().ok_or_else(|| "No media in message".to_string())?;
     
     // Check if this is a document (can only rename documents efficiently)
-    if let Media::Document(doc) = media {
+    if let Media::Document(ref doc) = media {
         // Use editMessage to update the document filename
         // This is much faster than re-uploading
         let text = msg.text();
-        
-        // Create new document attributes with updated filename
-        let mut new_attributes = Vec::new();
-        let mut found_filename = false;
-        
-        // Get attributes from the original document and update filename
-        // We need to re-create the message with updated filename
-        log::info!("Attempting fast rename via document attributes (preferred method)");
-        
+
         // Unfortunately grammers doesn't expose a direct way to edit document filename
         // So we fall back to the download-reupload method for now
         // But we'll optimize it to be faster
+        log::info!("Attempting fast rename via document attributes (preferred method)");
         
         // Download the file to temp location
         let temp_dir = std::env::temp_dir();
-        let extension = std::path::Path::new(&doc.name())
+        let doc_name = doc.name();
+        let extension = std::path::Path::new(doc_name)
             .extension()
             .and_then(|e| e.to_str())
             .unwrap_or("");
