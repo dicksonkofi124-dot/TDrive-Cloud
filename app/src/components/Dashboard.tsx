@@ -28,9 +28,9 @@ import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 
 // ── Share Bridge Config ──────────────────────────────────────────────────────
 // Default bridge server URL (streaming server)
-const BRIDGE_API = 'https://cinehub-bridge.onrender.com';
+const BRIDGE_API = 'http://localhost:14201';
 // Default website domain for config.js fetching
-const DEFAULT_DOMAIN = 'https://cinehub-jet-ten.vercel.app';
+const DEFAULT_DOMAIN = 'http://localhost:1420';
 
 // Centralized config fetch to avoid duplicate network requests
 async function fetchConfig() {

@@ -46,12 +46,15 @@ export function useTelegramConnection(onLogoutParent: () => void) {
                         setIsConnected(true);
                         queryClient.invalidateQueries({ queryKey: ['files'] });
                     } catch {
-                        // Retry loop: keep asking until the user succeeds or cancels
+                        // Retry loop with max attempts to prevent infinite loop
                         let connected = false;
-                        while (!connected) {
+                        let attempts = 0;
+                        const maxAttempts = 3;
+                        while (!connected && attempts < maxAttempts) {
+                            attempts++;
                             const shouldRetry = await confirm({
                                 title: "Connection Failed",
-                                message: "Failed to connect to Telegram. Would you like to retry?",
+                                message: `Failed to connect to Telegram. Would you like to retry? (${attempts}/${maxAttempts})`,
                                 confirmText: "Retry",
                                 variant: 'danger'
                             });
@@ -73,6 +76,15 @@ export function useTelegramConnection(onLogoutParent: () => void) {
                             } catch {
                                 // Loop will show the confirm dialog again
                             }
+                        }
+                        if (!connected) {
+                            toast.error("Failed to connect after multiple attempts. Please check your credentials.");
+                            if (_store) {
+                                await _store.delete('api_id');
+                                await _store.save();
+                            }
+                            onLogoutParent();
+                            return;
                         }
                     }
                 } else {

@@ -462,7 +462,7 @@ pub async fn cmd_get_files(
                     let n = d.name().to_string();
                     let s = d.size();
                     let m = d.mime_type().map(|s| s.to_string());
-                    let e = std::path::Path::new(&n).extension().map(|os| os.to_str().unwrap_or("").to_string());
+                    let e = std::path::Path::new(&n).extension().and_then(|os| os.to_str()).map(|s| s.to_string());
                     (n, s, m, e)
                 },
                 Media::Photo(_) => ("Photo.jpg".to_string(), 0, Some("image/jpeg".into()), Some("jpg".into())),

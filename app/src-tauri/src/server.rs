@@ -65,7 +65,7 @@ async fn stream_media(
                 // Try to fetch message efficiently
                  match client.get_messages_by_id(peer, &[message_id]).await {
                     Ok(messages) => {
-                        if let Some(Some(msg)) = messages.first() {
+                        if let Some(msg) = messages.first().and_then(|m| m.as_ref()) {
                             if let Some(media) = msg.media() {
                                 log::debug!("Stream request: Message and media found for msg {}", message_id);
                                 let size = match &media {

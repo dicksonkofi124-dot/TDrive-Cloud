@@ -173,8 +173,11 @@ export function AuthWizard({ onLogin }: { onLogin: () => void }) {
                     }
                 }
                 // If next_step === "waiting", keep polling
-            } catch {
-                // Polling error — keep trying silently
+            } catch (err) {
+                // Polling error — log and stop polling to avoid infinite loop
+                console.error("QR polling error:", err);
+                setQrPolling(false);
+                setError("QR login polling failed. Please try again.");
             }
         }, 3000);
 

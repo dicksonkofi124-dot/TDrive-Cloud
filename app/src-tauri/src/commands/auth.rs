@@ -43,7 +43,7 @@ pub async fn ensure_client_initialized(
         }
     }; // MutexGuard dropped here — before the await
     if did_shutdown_old_runner {
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        tokio::time::sleep(Duration::from_millis(500)).await;
     }
 
     let runner_num = state.runner_count.fetch_add(1, Ordering::SeqCst) + 1;
