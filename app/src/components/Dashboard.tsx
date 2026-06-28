@@ -229,15 +229,24 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
     };
 
     // ── SHARE HANDLER (Share Bridge) ─────────────────────────────────────────
+    // Builds a self-contained link straight from the bridge's always-working
+    // stream routes (/download/home/:id or /download/:channelId/:id). There is
+    // no registry step and nothing to register — the link works the instant
+    // it's created, and stays working forever, since it doesn't depend on any
+    // server-side state that could be lost on a restart or redeploy.
     const handleShare = async (file: TelegramFile) => {
         const messageId = file.id;
         const folderId = activeFolderId;
 
-        // Fetch config (domain and bridge API) in a single call
+        // Fetch config (domain) in a single call
         const config = await fetchConfig();
 
-        // Use message ID format like the example: https://cinehub-jet-ten.vercel.app/download.html?id=1122573
-        const shareUrl = `${config.domain}/download.html?id=${messageId}`;
+        const params = new URLSearchParams();
+        params.set('msg', messageId.toString());
+        if (folderId) params.set('ch', folderId.toString());
+        params.set('name', file.name);
+
+        const shareUrl = `${config.domain}/download.html?${params.toString()}`;
 
         setShareModalFile(file);
         setShareModalKey(messageId.toString());
@@ -247,64 +256,43 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
 
     const handleShareConfirm = async () => {
         if (!shareModalFile) return;
-        const messageId = shareModalFile.id;
         const finalUrl = shareModalUrl;
 
-        // Fetch config (domain and bridge API) in a single call
-        const config = await fetchConfig();
-
         try {
-            // Register movie with bridge server including folderId for TD channel detection
-            const registerResponse = await fetch(`${config.bridgeApi}/register-movie`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    messageId: messageId,
-                    folderId: activeFolderId,
-                    fileName: shareModalFile.name
-                })
-            });
-
-            if (!registerResponse.ok) {
-                console.warn('Failed to register movie with bridge server, but link was copied');
-            }
-
             await navigator.clipboard.writeText(finalUrl);
-            toast.success('✅ Share link copied & registered!', {
+            toast.success('✅ Share link copied!', {
                 description: finalUrl,
             });
-            setShareModalOpen(false);
-        } catch (error) {
-            // Fallback for clipboard copy even if registration fails
-            try {
-                await navigator.clipboard.writeText(finalUrl);
-                toast.success('✅ Share link copied!', {
-                    description: finalUrl,
-                });
-            } catch {
-                // Fallback
-                const ta = document.createElement('textarea');
-                ta.value = finalUrl;
-                document.body.appendChild(ta);
-                ta.select();
-                document.execCommand('copy');
-                document.body.removeChild(ta);
-                toast.success('Share link copied!');
-            }
-            setShareModalOpen(false);
+        } catch {
+            // Fallback for browsers/webviews without Clipboard API permission
+            const ta = document.createElement('textarea');
+            ta.value = finalUrl;
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+            toast.success('Share link copied!');
         }
+        setShareModalOpen(false);
     };
 
     // ── DOWNLOAD HANDLER ───────────────────────────────────────────────────────
+    // Routes through the same branded download.html page as Share, but with a
+    // direct, already-ready-to-go URL from this device's local streaming
+    // server — no bridge round-trip needed since the file is local right now.
     const handleDownload = async (file: TelegramFile) => {
         try {
             const info = await invoke<any>('cmd_get_stream_info');
             if (!info || !info.base_url) throw new Error('Streaming server not ready');
             const folderParam = activeFolderId ?? 'home';
             const directLink = `${info.base_url}/download/${folderParam}/${file.id}?token=${info.token}`;
-            const managerUrl = `https://cinehub-jet-ten.vercel.app/download.html?link=${encodeURIComponent(directLink)}`;
+
+            const config = await fetchConfig();
+            const params = new URLSearchParams();
+            params.set('link', directLink);
+            params.set('name', file.name);
+            const managerUrl = `${config.domain}/download.html?${params.toString()}`;
+
             window.open(managerUrl, '_blank');
             toast.success('Opening Download Manager', { description: file.name });
         } catch (error: any) {
