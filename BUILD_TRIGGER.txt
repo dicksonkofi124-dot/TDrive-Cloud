@@ -1,0 +1,2 @@
+Rebuild trigger - Fix rename functionality
+Timestamp: 2026-06-28
