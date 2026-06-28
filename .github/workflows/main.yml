@@ -21,10 +21,6 @@ jobs:
           - platform: macos-latest
             args: ''
             arch: arm64
-          - platform: self-hosted
-            os: macos
-            arch: x86_64
-            args: ''
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
