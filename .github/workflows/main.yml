@@ -15,12 +15,19 @@ jobs:
           - platform: windows-latest
             args: ''
             arch: x86_64
+            target: ''
           - platform: ubuntu-22.04
             args: ''
             arch: x86_64
+            target: ''
           - platform: macos-latest
             args: ''
             arch: arm64
+            target: ''
+          - platform: macos-latest
+            args: '--target x86_64-apple-darwin'
+            arch: x86_64
+            target: x86_64-apple-darwin
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
@@ -30,6 +37,8 @@ jobs:
           node-version: 22
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
       - name: install dependencies (ubuntu only)
         if: matrix.platform == 'ubuntu-22.04'
         run: |
