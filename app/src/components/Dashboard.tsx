@@ -27,28 +27,15 @@ import { useFileDownload } from '../hooks/useFileDownload';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 
 // ── Share Bridge Config ──────────────────────────────────────────────────────
-// Default bridge server URL (streaming server)
-const BRIDGE_API = 'http://localhost:14201';
-// Default website domain for config.js fetching
-const DEFAULT_DOMAIN = 'http://localhost:1420';
+// IMPORTANT: These must be the production URLs, not localhost.
+// The Tauri app runs at localhost:1420 in dev mode — using window.location.origin
+// or fetching config.js from an external URL both fail here (CSP blocks outbound
+// fetches). Hardcode the real values so share links always point at the live site.
+const BRIDGE_API = 'https://cinehub-bridge.onrender.com';
+const CINEHUB_DOMAIN = 'https://cinehub-jet-ten.vercel.app';
 
-// Centralized config fetch to avoid duplicate network requests
-async function fetchConfig() {
-    try {
-        const configResponse = await fetch(`${DEFAULT_DOMAIN}/config.js`);
-        if (configResponse.ok) {
-            const configText = await configResponse.text();
-            const domainMatch = configText.match(/domain:\s*['"]([^'"]+)['"]/);
-            const bridgeMatch = configText.match(/bridgeApi:\s*['"]([^'"]+)['"]/);
-            return {
-                domain: domainMatch ? domainMatch[1] : DEFAULT_DOMAIN,
-                bridgeApi: bridgeMatch ? bridgeMatch[1] : BRIDGE_API
-            };
-        }
-    } catch (error) {
-        console.warn('Failed to fetch config.js, using defaults');
-    }
-    return { domain: DEFAULT_DOMAIN, bridgeApi: BRIDGE_API };
+function getConfig() {
+    return { domain: CINEHUB_DOMAIN, bridgeApi: BRIDGE_API };
 }
 
 export function Dashboard({ onLogout }: { onLogout: () => void }) {
@@ -239,7 +226,7 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
         const folderId = activeFolderId;
 
         // Fetch config (domain) in a single call
-        const config = await fetchConfig();
+        const config = getConfig();
 
         const params = new URLSearchParams();
         params.set('msg', messageId.toString());
@@ -287,7 +274,7 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
             const folderParam = activeFolderId ?? 'home';
             const directLink = `${info.base_url}/download/${folderParam}/${file.id}?token=${info.token}`;
 
-            const config = await fetchConfig();
+            const config = getConfig();
             const params = new URLSearchParams();
             params.set('link', directLink);
             params.set('name', file.name);
@@ -303,17 +290,32 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
     // ── RENAME HANDLER ─────────────────────────────────────────────────────────
     const handleRename = async (file: TelegramFile) => {
         const newName = prompt(`Rename "${file.name}" to:`, file.name);
-        if (!newName || newName === file.name) return;
+        if (!newName || newName.trim() === '' || newName === file.name) return;
+
+        // Rename works by downloading the full file then re-uploading with the
+        // new name — this can take several minutes for large files. Show a
+        // persistent loading toast so the user knows it's working.
+        const loadingToastId = toast.loading(`Renaming "${file.name}"…`, {
+            description: 'Downloading and re-uploading — this may take a while for large files.',
+            duration: Infinity,
+        });
+
         try {
             await invoke('cmd_rename_file', {
                 messageId: file.id,
-                newName: newName,
+                newName: newName.trim(),
                 folderId: activeFolderId
             });
+            toast.dismiss(loadingToastId);
             queryClient.invalidateQueries({ queryKey: ['files', activeFolderId] });
-            toast.success(`Renamed to "${newName}"`);
+            toast.success(`Renamed to "${newName.trim()}"`, { duration: 4000 });
         } catch (error: any) {
-            toast.error(`Rename failed: ${error}`);
+            toast.dismiss(loadingToastId);
+            // Tauri wraps Rust errors — extract the human-readable message
+            const msg = typeof error === 'string'
+                ? error
+                : error?.message || error?.toString?.() || 'Unknown error';
+            toast.error('Rename failed', { description: msg, duration: 6000 });
         }
     };
 
